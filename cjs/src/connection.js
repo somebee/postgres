@@ -730,22 +730,44 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   async function fetchArrayTypes() {
     needsTypes = false
     const types = await new Query([`
-      select b.oid, b.typarray
+      select b.oid, b.typarray, b.typname
       from pg_catalog.pg_type a
       left join pg_catalog.pg_type b on b.oid = a.typelem
       where a.typcategory = 'A'
       group by b.oid, b.typarray
       order by b.oid
     `], [], execute)
-    types.forEach(({ oid, typarray }) => addArrayType(oid, typarray))
+    types.forEach(({ oid, typarray, typname }) => addArrayType(oid, typarray, typname))
   }
 
-  function addArrayType(oid, typarray) {
+  function addArrayType(oid, typarray, typname) {
+    console.log('add type with name',typname);
+
+    const namedtype = options.types[typname];
+    if(namedtype){
+      if(namedtype.to == undefined){
+        namedtype.to ||= oid;
+        options.serializers[oid] = namedtype.serialize
+      }
+
+      options.serializers[namedtype] = options.serializers[oid];
+
+      if(namedtype.from == undefined){
+        namedtype.from = [oid]
+        options.parsers[oid] = namedtype.parse
+      }
+      options.parsers[namedtype] = options.parsers[oid];
+    }
+
     const parser = options.parsers[oid]
     options.shared.typeArrayMap[oid] = typarray
     options.parsers[typarray] = (xs) => arrayParser(xs, parser)
     options.parsers[typarray].array = true
     options.serializers[typarray] = (xs) => arraySerializer(xs, options.serializers[oid])
+
+    if(options.serializers[oid]){
+      options.serializers[typname] = options.serializers[oid]
+    }
   }
 
   function tryNext(x, xs) {
